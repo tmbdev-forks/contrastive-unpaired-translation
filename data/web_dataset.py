@@ -1,4 +1,5 @@
 import os.path
+import sys
 from data.base_dataset import BaseDataset, get_transform
 from data.image_folder import make_dataset
 from PIL import Image
@@ -14,10 +15,18 @@ from math import log10
 import torch
 
 
-def get_patches(size, nsample=100, threshold=0.5):
+def normalize_image(image):
+    image = image - np.amin(image)
+    image /= np.amax(image)
+    return image
+
+
+def get_patches(size, nsample=100):
     def loop(src):
         for key, image in src:
+            image = normalize_image(image)
             if size is None or size < 1:
+                assert False
                 yield key, image
             for i in range(nsample):
                 h, w = image.shape[:2]
@@ -34,10 +43,13 @@ def get_patches(size, nsample=100, threshold=0.5):
                     output_shape=(ph, pw, 3),
                 )
                 # patch = image[y:y+ph, x:x+pw, ...]
-                frac = np.sum(patch < threshold) * 1.0 / (pw * ph)
+                assert np.amin(patch) >= 0.0 and np.amax(patch) <= 1.0
+                frac = np.sum(np.mean(patch, 2) < 0.5) * 1.0 / (pw * ph)
                 if frac < 0.05 or frac > 0.9:
                     continue
-                yield f"{key}/{i}", torch.tensor(patch).permute(2, 0, 1)
+                patch = Image.fromarray((255 * patch).astype(np.uint8))
+                yield f"{key}/{i}", patch
+
     return loop
 
 
@@ -67,27 +79,27 @@ class WebDataset(BaseDataset):
         patchsize = self.options.get("patchsize", 224)
         self.size = self.options.get("size", 1000)
         self.ds_A = (
-            wds.WebDataset(self.urls_A)
-            .shuffle(1000)
+            wds.WebDataset(self.urls_A, resampled=True)
+            .shuffle(100)
             .decode("rgb")
             .to_tuple("__key__", extensions)
             .then(get_patches(patchsize))
+            .shuffle(1000)
             .repeat()
         )
         self.src_A = iter(self.ds_A)
-        #print(self.src_A)
-        #print(next(self.src_A))
         self.ds_B = None
         self.src_B = None
         if self.urls_B is not None:
             self.ds_B = (
                 None
                 if self.urls_B is None
-                else wds.WebDataset(self.urls_B)
-                .shuffle(1000)
+                else wds.WebDataset(self.urls_B, resampled=True)
+                .shuffle(100)
                 .decode("rgb")
                 .to_tuple("__key__", extensions)
                 .then(get_patches(patchsize))
+                .shuffle(1000)
                 .repeat()
             )
             self.src_B = iter(self.ds_B)
@@ -104,9 +116,16 @@ class WebDataset(BaseDataset):
             A_paths (str)    -- image paths
             B_paths (str)    -- image paths
         """
-        A_path, A_img = next(self.src_A)
-        B_path, B_img = next(self.src_B) if self.src_B is not None else (None, None)
-        return {"A": A_img, "B": B_img, "A_paths": A_path, "B_paths": B_path}
+        result = {}
+        is_finetuning = self.opt.isTrain and self.current_epoch > self.opt.n_epochs
+        modified_opt = util.copyconf(self.opt, load_size=self.opt.crop_size if is_finetuning else self.opt.load_size)
+        transform = get_transform(modified_opt)
+        result["A_paths"], result["A"] = next(self.src_A)
+        result["A"] = transform(result["A"])
+        if self.src_B is not None:
+            result["B_paths"], result["B"] = next(self.src_B)
+            result["B"] = transform(result["B"])
+        return result
 
     def __len__(self):
         """Return the total number of images in the dataset.
