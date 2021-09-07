@@ -6,6 +6,7 @@ from PIL import Image
 import random
 import util.util as util
 from random import randrange, uniform
+from torchvision import transforms
 
 
 from scipy import ndimage as ndi
@@ -24,7 +25,7 @@ def normalize_image(image):
 def get_patches(size, nsample=100):
     def loop(src):
         for key, image in src:
-            image = normalize_image(image)
+            #image = normalize_image(image)
             if size is None or size < 1:
                 assert False
                 yield key, image
@@ -47,7 +48,7 @@ def get_patches(size, nsample=100):
                 frac = np.sum(np.mean(patch, 2) < 0.5) * 1.0 / (pw * ph)
                 if frac < 0.05 or frac > 0.9:
                     continue
-                patch = Image.fromarray((255 * patch).astype(np.uint8))
+                patch = Image.fromarray((255 * patch).astype(np.uint8)).convert("RGB")
                 yield f"{key}/{i}", patch
 
     return loop
@@ -76,8 +77,8 @@ class WebDataset(BaseDataset):
         self.urls_A, self.urls_B, options = dataroot + [None] * (3 - len(dataroot))
         self.options = eval(f"dict({options})") if options is not None else {}
         extensions = self.options.get("extensions", ["jpg", "jpeg", "png"])
-        patchsize = self.options.get("patchsize", 224)
-        self.size = self.options.get("size", 1000)
+        patchsize = self.options.get("patchsize", 256)
+        self.size = self.options.get("size", 10000)
         self.ds_A = (
             wds.WebDataset(self.urls_A, resampled=True)
             .shuffle(100)
@@ -121,6 +122,9 @@ class WebDataset(BaseDataset):
         modified_opt = util.copyconf(self.opt, load_size=self.opt.crop_size if is_finetuning else self.opt.load_size)
         transform = get_transform(modified_opt)
         result["A_paths"], result["A"] = next(self.src_A)
+        if int(os.environ.get("VERBOSE_LOAD", "0")) > 0:
+            A = transforms.ToTensor()(result["A"])
+            print(f"WebDataset {A.shape} {A.min():6.3f} {A.mean():6.3f} {A.max():6.3f} {result['A']}", file=sys.stderr)
         result["A"] = transform(result["A"])
         if self.src_B is not None:
             result["B_paths"], result["B"] = next(self.src_B)

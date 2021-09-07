@@ -4,6 +4,8 @@ from data.image_folder import make_dataset
 from PIL import Image
 import random
 import util.util as util
+import sys
+from torchvision import transforms
 
 
 class UnalignedDataset(BaseDataset):
@@ -65,6 +67,9 @@ class UnalignedDataset(BaseDataset):
         is_finetuning = self.opt.isTrain and self.current_epoch > self.opt.n_epochs
         modified_opt = util.copyconf(self.opt, load_size=self.opt.crop_size if is_finetuning else self.opt.load_size)
         transform = get_transform(modified_opt)
+        if int(os.environ.get("VERBOSE_LOAD", "0")) > 0:
+            A = transforms.ToTensor()(A_img)
+            print(f"Unaligned {A.shape} {A.min():6.3f} {A.mean():6.3f} {A.max():6.3f} {A_img}", file=sys.stderr)
         A = transform(A_img)
         B = transform(B_img)
 
