@@ -14,6 +14,9 @@ import webdataset as wds
 import numpy as np
 from math import log10
 import torch
+import yaml
+import io
+import braceexpand
 
 
 def normalize_image(image):
@@ -53,6 +56,11 @@ def get_patches(size, nsample=100):
 
     return loop
 
+def expand(urls):
+    if isinstance(urls, str):
+        return list(braceexpand.braceexpand(urls))
+    else:
+        return [x for u in urls for x in expand(u)]
 
 class WebDataset(BaseDataset):
     """
@@ -73,18 +81,24 @@ class WebDataset(BaseDataset):
         """
         BaseDataset.__init__(self, opt)
 
-        dataroot = opt.dataroot.split(";")
-        self.urls_A, self.urls_B, options = dataroot + [None] * (3 - len(dataroot))
-        self.options = eval(f"dict({options})") if options is not None else {}
+        if not opt.dataroot.endswith(".yaml"):
+            self.options = yaml.load(io.StringIO(opt.dataroot), Loader=yaml.FullLoader)
+        else:
+            self.options = yaml.load(open(opt.dataroot, "r"), Loader=yaml.FullLoader)
+        assert isinstance(self.options, dict)
+        self.urls_A = expand(self.options.get("A", None))
+        print(f"A expanded to {len(self.urls_A)} urls", file=sys.stderr)
+        self.urls_B = expand(self.options.get("B", None))
         extensions = self.options.get("extensions", ["jpg", "jpeg", "png"])
         patchsize = self.options.get("patchsize", 256)
-        self.size = self.options.get("size", 10000)
+        self.size = self.options.get("epoch", 10000)
+        nsample = self.options.get("nsample", 100)
         self.ds_A = (
             wds.WebDataset(self.urls_A, resampled=True)
             .shuffle(100)
             .decode("rgb")
             .to_tuple("__key__", extensions)
-            .then(get_patches(patchsize))
+            .then(get_patches(patchsize, nsample=nsample))
             .shuffle(1000)
             .repeat()
         )
@@ -92,6 +106,7 @@ class WebDataset(BaseDataset):
         self.ds_B = None
         self.src_B = None
         if self.urls_B is not None:
+            print(f"B expanded to {len(self.urls_B)} urls", file=sys.stderr)
             self.ds_B = (
                 None
                 if self.urls_B is None
@@ -99,7 +114,7 @@ class WebDataset(BaseDataset):
                 .shuffle(100)
                 .decode("rgb")
                 .to_tuple("__key__", extensions)
-                .then(get_patches(patchsize))
+                .then(get_patches(patchsize, nsample=nsample))
                 .shuffle(1000)
                 .repeat()
             )
