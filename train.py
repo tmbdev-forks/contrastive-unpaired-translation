@@ -4,10 +4,24 @@ from options.train_options import TrainOptions
 from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
+import os
+import PIL
+import numpy as np
 
+def normalize(img):
+    img = img - np.min(img)
+    img /= np.max(img)
+    return img
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options
+
+    if "WANDB" in os.environ:
+        import wandb
+        wandb.init(project=os.environ["WANDB"], config=opt)
+    else:
+        wandb = None
+
     dataset = create_dataset(opt)  # create a dataset given opt.dataset_mode and other options
     dataset_size = len(dataset)    # get the number of images in the dataset.
 
@@ -53,25 +67,39 @@ if __name__ == '__main__':
                 save_result = total_iters % opt.update_html_freq == 0
                 model.compute_visuals()
                 visualizer.display_current_results(model.get_current_visuals(), epoch, save_result)
+                if wandb:
+                    current = model.get_current_visuals()
+                    images = [v.detach().cpu().numpy()[0].transpose(1, 2, 0) for v in current.values()]
+                    images = [normalize(v) for v in images]
+                    images = [PIL.Image.fromarray(np.clip((255*v).astype(np.uint8), 0, 255)) for v in images]
+                    images = [wandb.Image(v) for v in images]
+                    caption = " ".join(list(current.keys()))
+                    wandb.log({"image": images})
 
             if total_iters % opt.print_freq == 0:    # print training losses and save logging information to the disk
                 losses = model.get_current_losses()
                 visualizer.print_current_losses(epoch, epoch_iter, losses, optimize_time, t_data)
                 if opt.display_id is None or opt.display_id > 0:
                     visualizer.plot_current_losses(epoch, float(epoch_iter) / dataset_size, losses)
+                if wandb is not None:
+                    wandb.log(losses, step=total_iters)
 
             if total_iters % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
                 print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
                 print(opt.name)  # it's useful to occasionally show the experiment name on console
                 save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
-                model.save_networks(save_suffix)
+                paths = model.save_networks(save_suffix)
+                for p in paths:
+                    wandb.save(p)
 
             iter_data_time = time.time()
 
         if epoch % opt.save_epoch_freq == 0:              # cache our model every <save_epoch_freq> epochs
             print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
             model.save_networks('latest')
-            model.save_networks(epoch)
+            paths = model.save_networks(epoch)
+            for p in paths:
+                wandb.save(p)
 
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.n_epochs + opt.n_epochs_decay, time.time() - epoch_start_time))
         model.update_learning_rate()                     # update learning rates at the end of every epoch.
