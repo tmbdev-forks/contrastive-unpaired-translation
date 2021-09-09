@@ -141,12 +141,12 @@ class WebDataset(BaseDataset):
             A = transforms.ToTensor()(result["A"])
             print(f"WebDataset {A.shape} {A.min():6.3f} {A.mean():6.3f} {A.max():6.3f} {result['A']}", file=sys.stderr)
         result["A"] = transform(result["A"])
-        if opt.input_nc == 1:
+        if self.opt.input_nc == 1:
             result["A"] = result["A"].mean(1, keepdim=True)
         if self.src_B is not None:
             result["B_paths"], result["B"] = next(self.src_B)
             result["B"] = transform(result["B"])
-            if out.output_nc == 1:
+            if self.opt.output_nc == 1:
                 result["B"] = result["B"].mean(1, keepdim=True)
         return result
 
