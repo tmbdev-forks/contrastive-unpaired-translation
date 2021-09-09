@@ -7,11 +7,24 @@ from util.visualizer import Visualizer
 import os
 import PIL
 import numpy as np
+import sys
 
 def normalize(img):
     img = img - np.min(img)
     img /= np.max(img)
     return img
+
+def batch2img(batch):
+    assert batch.ndim == 4
+    batch = batch.detach().cpu().numpy().transpose(0, 2, 3, 1)
+    batch = np.clip(batch, 0, 1)
+    batch = (batch * 255).astype(np.uint8)
+    if batch.ndim == 4:
+        batch = batch[0]                         
+    if batch.ndim == 3 and batch.shape[2] == 1:
+        batch = np.repeat(batch, 3, axis=2)
+    assert batch.ndim == 3 and batch.shape[2] == 3, (batch.shape, batch.ndim, batch.dtype)
+    return PIL.Image.fromarray(batch)
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options
@@ -69,10 +82,10 @@ if __name__ == '__main__':
                 visualizer.display_current_results(model.get_current_visuals(), epoch, save_result)
                 if wandb:
                     current = model.get_current_visuals()
-                    images = [v.detach().cpu().numpy()[0].transpose(1, 2, 0) for v in current.values()]
-                    images = [normalize(v) for v in images]
-                    images = [PIL.Image.fromarray(np.clip((255*v).astype(np.uint8), 0, 255)) for v in images]
+                    images = [batch2img(v) for v in current.values()]
+                    print("***", images)
                     images = [wandb.Image(v) for v in images]
+                    print("***", images)
                     caption = " ".join(list(current.keys()))
                     wandb.log({"image": images})
 
