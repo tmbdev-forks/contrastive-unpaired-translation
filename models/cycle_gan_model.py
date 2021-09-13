@@ -1,3 +1,5 @@
+import os
+import sys
 import torch
 import itertools
 from util.image_pool import ImagePool
@@ -121,6 +123,28 @@ class CycleGANModel(BaseModel):
         self.rec_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
         self.fake_A = self.netG_B(self.real_B)  # G_B(B)
         self.rec_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
+        path = os.environ.get("SAVE_TRACE", "")
+        if path != "":
+            print(self.netG_A)
+            print(self.netG_B)
+            def traced(mod, x):
+                if isinstance(mod, torch.nn.DataParallel):
+                    mod = mod.module
+                return torch.jit.trace(mod, x)
+            print(f"JIT tracing...", file=sys.stderr)
+            net_A = torch.jit.trace(self.netG_A, self.real_A)   
+            trace_A = traced(self.netG_A, self.real_A)
+            trace_B = traced(self.netG_B, self.real_B)
+            path_A = os.path.join(path, "A_trace.pt")
+            path_B = os.path.join(path, "B_trace.pt")
+            print(f"saving {path_A}", file=sys.stderr)            
+            trace_A.save(path_A)
+            print(f"saving {path_B}", file=sys.stderr)
+            trace_B.save(path_B)
+            print("done")
+            os.environ["SAVE_TRACE"] = ""
+
+
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator

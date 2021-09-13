@@ -6,6 +6,7 @@ import functools
 from torch.optim import lr_scheduler
 import numpy as np
 from .stylegan_networks import StyleGAN2Discriminator, StyleGAN2Generator, TileStyleGAN2Discriminator
+from typing import List
 
 ###############################################################################
 # Helper Functions
@@ -73,8 +74,8 @@ class Upsample2(nn.Module):
 class Upsample(nn.Module):
     def __init__(self, channels, pad_type='repl', filt_size=4, stride=2):
         super(Upsample, self).__init__()
-        self.filt_size = filt_size
-        self.filt_odd = np.mod(filt_size, 2) == 1
+        self.filt_size = int(filt_size)
+        self.filt_odd = bool(np.mod(filt_size, 2) == 1)
         self.pad_size = int((filt_size - 1) / 2)
         self.stride = stride
         self.off = int((self.stride - 1) / 2.)
@@ -981,7 +982,7 @@ class ResnetGenerator(nn.Module):
 
         self.model = nn.Sequential(*model)
 
-    def forward(self, input, layers=[], encode_only=False):
+    def forward(self, input, layers:List[int]=[], encode_only=False):
         if -1 in layers:
             layers.append(len(self.model))
         if len(layers) > 0:
