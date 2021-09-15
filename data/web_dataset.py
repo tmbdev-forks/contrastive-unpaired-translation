@@ -65,7 +65,7 @@ def expand(urls):
     else:
         return [x for u in urls for x in expand(u)]
 
-def make_dataset(spec, options):
+def make_dataset(spec, options, comment=""):
     gray = options.get("gray", True)
     extensions = options.get("extensions", ["jpg", "jpeg", "png"])
     patchsize = options.get("patchsize", 256)
@@ -74,12 +74,12 @@ def make_dataset(spec, options):
         return None
     if isinstance(spec, str):
         spec = [spec]
-    datasets = []
+    result = wds.RoundRobin()
     for item in spec:   
         if isinstance(item, str):
             item = dict(shards=item) 
         urls = list(braceexpand.braceexpand(item["shards"]))
-        print("***", urls[:10])
+        print("# make_dataset ", comment, " ", urls[:2])
         dataset = (
             wds.WebDataset(urls, resampled=True)
             .shuffle(item.get("preshuffle", 100))
@@ -94,13 +94,9 @@ def make_dataset(spec, options):
             .shuffle(item.get("shuffle", 1000))
             .repeat()
         )
-        datasets.append(dataset)
+        result.add_dataset(dataset, probability=item.get("probability", 1.0))
 
-    if len(datasets) > 1:
-        return RoundRobin(datasets)
-
-    if len(datasets) == 1:
-        return datasets[0]
+    return result
 
 
 class RoundRobin(IterableDataset):
@@ -143,8 +139,8 @@ class WebDataset(BaseDataset):
         else:
             self.options = yaml.load(open(opt.dataroot, "r"), Loader=yaml.FullLoader)
         assert isinstance(self.options, dict)
-        self.ds_A = make_dataset(self.options["A"], self.options)
-        self.ds_B = make_dataset(self.options.get("B", None), self.options)
+        self.ds_A = make_dataset(self.options["A"], self.options, comment="A")
+        self.ds_B = make_dataset(self.options.get("B", None), self.options, comment="B")
         self.size = self.options.get("epoch", 10000)
         self.src_A = iter(self.ds_A)
         self.src_B = iter(self.ds_B) if self.ds_B is not None else None
