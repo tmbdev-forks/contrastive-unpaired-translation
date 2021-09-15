@@ -143,6 +143,7 @@ class CycleGANModel(BaseModel):
             trace_B.save(path_B)
             print("done")
             os.environ["SAVE_TRACE"] = ""
+            sys.exit(0)
 
 
 

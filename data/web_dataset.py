@@ -1,5 +1,7 @@
 import os.path
 import sys
+
+from webdataset import dataset
 from data.base_dataset import BaseDataset, get_transform
 from data.image_folder import make_dataset
 from PIL import Image
@@ -12,7 +14,7 @@ from torchvision import transforms
 from scipy import ndimage as ndi
 import webdataset as wds
 import numpy as np
-from math import log10
+from math import floor, log10
 import torch
 import yaml
 import io
@@ -25,7 +27,7 @@ def normalize_image(image):
     return image
 
 
-def get_patches(size, nsample=100):
+def get_patches(size, nsample=100, threshold=-1.0, scale=(0.5, 2.0)):
     def loop(src):
         for key, image in src:
             #image = normalize_image(image)
@@ -36,11 +38,11 @@ def get_patches(size, nsample=100):
                 h, w = image.shape[:2]
                 ph, pw = size, size
                 y, x = randrange(0, h - ph), randrange(0, w - pw)
-                scale = 10 ** uniform(log10(0.5), log10(2.0))
-                assert scale >= 0.3 and scale <= 3.1
+                s = 10 ** uniform(log10(scale[0]), log10(scale[1]))
+                assert s >= scale[0] and s <= scale[1]
                 patch = ndi.affine_transform(
                     image,
-                    np.diag([scale, scale, 1.0]),
+                    np.diag([s, s, 1.0]),
                     (y, x, 0),
                     order=1,
                     mode="mirror",
@@ -49,7 +51,7 @@ def get_patches(size, nsample=100):
                 # patch = image[y:y+ph, x:x+pw, ...]
                 assert np.amin(patch) >= 0.0 and np.amax(patch) <= 1.0
                 frac = np.sum(np.mean(patch, 2) < 0.5) * 1.0 / (pw * ph)
-                if frac < 0.05 or frac > 0.9:
+                if threshold > 0.0 and (frac < threshold or frac > threshold):
                     continue
                 patch = Image.fromarray((255 * patch).astype(np.uint8)).convert("RGB")
                 yield f"{key}/{i}", patch
@@ -61,6 +63,44 @@ def expand(urls):
         return list(braceexpand.braceexpand(urls))
     else:
         return [x for u in urls for x in expand(u)]
+
+def make_dataset(spec, options):
+    gray = options.get("gray", True)
+    extensions = options.get("extensions", ["jpg", "jpeg", "png"])
+    patchsize = options.get("patchsize", 256)
+    nsample = options.get("nsample", 100)
+    if spec is None:
+        return None
+    if isinstance(spec, str):
+        spec = [spec]
+    datasets = []
+    for item in spec:   
+        if isinstance(item, str):
+            item = dict(shards=item) 
+        urls = list(braceexpand.braceexpand(item["shards"]))
+        print("***", urls)
+        dataset = (
+            wds.WebDataset(urls, resampled=True)
+            .shuffle(item.get("preshuffle", 100))
+            .rsample(item.get("subsample", 1.0))
+            .decode("rgb")
+            .to_tuple("__key__", item.get("extensions", ["png", "jpg", "jpeg"]))
+        )
+        if gray:
+            dataset = dataset.map(lambda s: (s[0], np.mean(s[1], 2, keepdims=True).repeat(3, 2)))
+        dataset = (
+            dataset.then(get_patches(patchsize, nsample=nsample))
+            .shuffle(item.get("shuffle", 1000))
+            .repeat()
+        )
+        datasets.append(dataset)
+
+    if len(datasets) > 1:
+        return wds.RoundRobin(datasets)
+
+    if len(datasets) == 1:
+        return datasets[0]
+
 
 class WebDataset(BaseDataset):
     """
@@ -86,39 +126,11 @@ class WebDataset(BaseDataset):
         else:
             self.options = yaml.load(open(opt.dataroot, "r"), Loader=yaml.FullLoader)
         assert isinstance(self.options, dict)
-        self.urls_A = expand(self.options.get("A", None))
-        print(f"A expanded to {len(self.urls_A)} urls", file=sys.stderr)
-        self.urls_B = expand(self.options.get("B", None))
-        extensions = self.options.get("extensions", ["jpg", "jpeg", "png"])
-        patchsize = self.options.get("patchsize", 256)
+        self.ds_A = make_dataset(self.options["A"], self.options)
+        self.ds_B = make_dataset(self.options.get("B", None), self.options)
         self.size = self.options.get("epoch", 10000)
-        nsample = self.options.get("nsample", 100)
-        self.ds_A = (
-            wds.WebDataset(self.urls_A, resampled=True)
-            .shuffle(100)
-            .decode("rgb")
-            .to_tuple("__key__", extensions)
-            .then(get_patches(patchsize, nsample=nsample))
-            .shuffle(1000)
-            .repeat()
-        )
         self.src_A = iter(self.ds_A)
-        self.ds_B = None
-        self.src_B = None
-        if self.urls_B is not None:
-            print(f"B expanded to {len(self.urls_B)} urls", file=sys.stderr)
-            self.ds_B = (
-                None
-                if self.urls_B is None
-                else wds.WebDataset(self.urls_B, resampled=True)
-                .shuffle(100)
-                .decode("rgb")
-                .to_tuple("__key__", extensions)
-                .then(get_patches(patchsize, nsample=nsample))
-                .shuffle(1000)
-                .repeat()
-            )
-            self.src_B = iter(self.ds_B)
+        self.src_B = iter(self.ds_B) if self.ds_B is not None else None
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -159,3 +171,4 @@ class WebDataset(BaseDataset):
         we take a maximum of
         """
         return self.size
+
