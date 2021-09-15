@@ -102,9 +102,10 @@ if __name__ == '__main__':
                 print(opt.name)  # it's useful to occasionally show the experiment name on console
                 save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
                 paths = model.save_networks(save_suffix)
-                print(f"paths: {paths}", file=sys.stderr)
-                for p in paths:
-                    wandb.save(p, policy="now")
+                if wandb is not None:
+                    print(f"paths: {paths}", file=sys.stderr)
+                    for p in paths:
+                        wandb.save(p, policy="now")
 
             iter_data_time = time.time()
 
@@ -112,9 +113,10 @@ if __name__ == '__main__':
             print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
             model.save_networks('latest')
             paths = model.save_networks(epoch)
-            print(f"epoch paths: {paths}", file=sys.stderr)
-            for p in paths:
-                wandb.save(p, policy="now")
+            if wandb is not None:
+                print(f"epoch paths: {paths}", file=sys.stderr)
+                for p in paths:
+                    wandb.save(p, policy="now")
 
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.n_epochs + opt.n_epochs_decay, time.time() - epoch_start_time))
         model.update_learning_rate()                     # update learning rates at the end of every epoch.

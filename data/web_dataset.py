@@ -9,6 +9,7 @@ import random
 import util.util as util
 from random import randrange, uniform
 from torchvision import transforms
+from torch.utils.data import IterableDataset
 
 
 from scipy import ndimage as ndi
@@ -78,7 +79,7 @@ def make_dataset(spec, options):
         if isinstance(item, str):
             item = dict(shards=item) 
         urls = list(braceexpand.braceexpand(item["shards"]))
-        print("***", urls)
+        print("***", urls[:10])
         dataset = (
             wds.WebDataset(urls, resampled=True)
             .shuffle(item.get("preshuffle", 100))
@@ -96,11 +97,27 @@ def make_dataset(spec, options):
         datasets.append(dataset)
 
     if len(datasets) > 1:
-        return wds.RoundRobin(datasets)
+        return RoundRobin(datasets)
 
     if len(datasets) == 1:
         return datasets[0]
 
+
+class RoundRobin(IterableDataset):
+    def __init__(self, datasets):
+        self.datasets = datasets
+
+    def __iter__(self):
+        sources = [iter(d) for d in self.datasets]
+        index = 0
+        while len(sources) > 0:
+            try:
+                yield next(sources[index])
+            except StopIteration:
+                del sources[index]
+                index = (index + 1) % len(sources)
+                if len(sources) == 0:
+                    break
 
 class WebDataset(BaseDataset):
     """
