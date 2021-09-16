@@ -86,7 +86,7 @@ def make_dataset(spec, options, comment=""):
             .shuffle(item.get("preshuffle", 100))
             .rsample(item.get("subsample", 1.0))
             .decode("rgb")
-            .to_tuple("__key__", item.get("extensions", ["png", "jpg", "jpeg"], handler=wds.ignore_and_continue))
+            .to_tuple("__key__", item.get("extensions", ["png", "jpg", "jpeg"]), handler=wds.ignore_and_continue)
         )
         if gray:
             dataset = dataset.map(lambda s: (s[0], np.mean(s[1], 2, keepdims=True).repeat(3, 2)))
