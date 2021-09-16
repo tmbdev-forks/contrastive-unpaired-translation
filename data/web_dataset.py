@@ -66,6 +66,7 @@ def expand(urls):
         return [x for u in urls for x in expand(u)]
 
 def make_dataset(spec, options, comment=""):
+    print(comment, spec, options)
     gray = options.get("gray", True)
     extensions = options.get("extensions", ["jpg", "jpeg", "png"])
     patchsize = options.get("patchsize", 256)
@@ -81,7 +82,7 @@ def make_dataset(spec, options, comment=""):
         urls = list(braceexpand.braceexpand(item["shards"]))
         print("# make_dataset ", comment, " ", urls[:2])
         dataset = (
-            wds.WebDataset(urls, resampled=True)
+            wds.WebDataset(urls, resampled=True, handler=wds.ignore_and_continue)
             .shuffle(item.get("preshuffle", 100))
             .rsample(item.get("subsample", 1.0))
             .decode("rgb")
@@ -94,26 +95,9 @@ def make_dataset(spec, options, comment=""):
             .shuffle(item.get("shuffle", 1000))
             .repeat()
         )
-        result.add_dataset(dataset, probability=item.get("probability", 1.0))
+        result.add_dataset(dataset, probability=item.get("probability", 1.0), comment=str(urls)[:80])
 
     return result
-
-
-class RoundRobin(IterableDataset):
-    def __init__(self, datasets):
-        self.datasets = datasets
-
-    def __iter__(self):
-        sources = [iter(d) for d in self.datasets]
-        index = 0
-        while len(sources) > 0:
-            try:
-                yield next(sources[index])
-            except StopIteration:
-                del sources[index]
-                index = (index + 1) % len(sources)
-                if len(sources) == 0:
-                    break
 
 class WebDataset(BaseDataset):
     """
@@ -140,10 +124,13 @@ class WebDataset(BaseDataset):
             self.options = yaml.load(open(opt.dataroot, "r"), Loader=yaml.FullLoader)
         assert isinstance(self.options, dict)
         self.ds_A = make_dataset(self.options["A"], self.options, comment="A")
+        print("ds_A", id(self.ds_A), self.ds_A)        
         self.ds_B = make_dataset(self.options.get("B", None), self.options, comment="B")
         self.size = self.options.get("epoch", 10000)
         self.src_A = iter(self.ds_A)
         self.src_B = iter(self.ds_B) if self.ds_B is not None else None
+        print("ds_A", id(self.ds_A), self.ds_A)
+        print("ds_B", id(self.ds_B), self.ds_B)
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
