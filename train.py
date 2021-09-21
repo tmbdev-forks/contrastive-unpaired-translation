@@ -83,9 +83,7 @@ if __name__ == '__main__':
                 if wandb:
                     current = model.get_current_visuals()
                     images = [batch2img(v) for v in current.values()]
-                    print("***", images)
                     images = [wandb.Image(v) for v in images]
-                    print("***", images)
                     caption = " ".join(list(current.keys()))
                     wandb.log({"image": images})
 
