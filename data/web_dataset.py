@@ -21,6 +21,8 @@ import yaml
 import io
 import braceexpand
 
+verbose_wds = int(os.environ.get("VERBOSE_WDS", 0))
+
 
 def normalize_image(image):
     image = image - np.amin(image)
@@ -65,18 +67,36 @@ def expand(urls):
     else:
         return [x for u in urls for x in expand(u)]
 
+def random_rescale(image, scales):
+    assert isinstance(image, np.ndarray)
+    image = Image.fromarray((image*255.0).astype(np.uint8)).convert("RGB")
+    lo, hi = scales
+    h, w = image.height, image.width
+    s = 10**random.uniform(log10(lo), log10(hi))
+    mode = random.choice([Image.NEAREST, Image.BILINEAR, Image.BICUBIC, Image.LANCZOS])
+    zoomed = image.resize((int(w * s), int(h * s)), mode)
+    zoomed = np.array(zoomed) / 255.0
+    if verbose_wds:
+        print("# random_rescale ", scales, s, (h, w), zoomed.shape)
+    return zoomed
+
 def random_rotation(image, prob=0.5):
+    assert isinstance(image, Image.Image)
     if random.random() < prob:
         return image
     assert isinstance(image, Image.Image)
     a = random.choice([0, 90, 180, 270])
+    #print("# random_rotation ", a)
     return image.rotate(a)
 
-def random_scale(image, prob=0.5):
+def random_down_up_scale(image, prob=0.5):
+    assert isinstance(image, Image.Image)
     if random.random() < prob:
         return image
     h, w = image.height, image.width
     s = random.uniform(2.0, 5.0)
+    if verbose_wds:
+        print("# random_down_up_scale ", s)
     mode = random.choice([Image.NEAREST, Image.BILINEAR, Image.BICUBIC, Image.LANCZOS])
     zoomed = image.resize((int(w * s), int(h * s)), mode)
     unzoomed = image.resize((w, h), mode)
@@ -84,13 +104,6 @@ def random_scale(image, prob=0.5):
 
 def make_dataset(spec, options, comment=""):
     print(comment, spec, options)
-    gray = options.get("gray", True)
-    extensions = options.get("extensions", ["jpg", "jpeg", "png"])
-    patchsize = options.get("patchsize", 256)
-    nsample = options.get("nsample", 100)
-    rotprob = float(options.get("rotprob", 0.25))
-    scaleprob = float(options.get("scaleprob", 0.0))
-    noise = float(options.get("noise", 0.0))
     if spec is None:
         return None
     if isinstance(spec, str):
@@ -99,6 +112,12 @@ def make_dataset(spec, options, comment=""):
     for item in spec:   
         if isinstance(item, str):
             item = dict(shards=item) 
+        extensions = item.get("extensions", ["jpg", "jpeg", "png"])
+        patchsize = item.get("patchsize", 256)
+        nsample = item.get("nsample", 10)
+        rotprob = float(item.get("rotprob", 0.25))
+        scaleprob = float(item.get("scaleprob", 0.0))
+        noise = float(item.get("noise", 0.0))
         urls = list(braceexpand.braceexpand(item["shards"]))
         print("# make_dataset ", comment, " ", urls[:2])
         dataset = (
@@ -108,17 +127,22 @@ def make_dataset(spec, options, comment=""):
             .decode("rgb")
             .to_tuple("__key__", item.get("extensions", ["png", "jpg", "jpeg"]), handler=wds.ignore_and_continue)
         )
+        gray = item.get("gray", True)
         if gray:
             dataset = dataset.map(lambda s: (s[0], np.mean(s[1], 2, keepdims=True).repeat(3, 2)))
+        scale = item.get("scale", [])
+        if len(scale) > 0:
+            the_scale = scale
+            dataset = dataset.map(lambda s: (s[0], random_rescale(s[1], the_scale)))
         dataset = (
             dataset.then(get_patches(patchsize, nsample=nsample))
-            .shuffle(item.get("shuffle", 1000))
+            .shuffle(item.get("shuffle", 10000))
             .repeat()
         )
         if rotprob > 0.0:
             dataset = dataset.map(lambda s: (s[0], random_rotation(s[1], rotprob)))
         if scaleprob > 0.0:
-            dataset = dataset.map(lambda s: (s[0], random_scale(s[1], scaleprob)))
+            dataset = dataset.map(lambda s: (s[0], random_down_up_scale(s[1], scaleprob)))
         result.add_dataset(dataset, probability=item.get("probability", 1.0), comment=str(urls)[:80])
 
     return result
@@ -186,6 +210,8 @@ class WebDataset(BaseDataset):
             assert result["B"].shape[0] == 3
             if self.opt.output_nc == 1:
                 result["B"] = result["B"].mean(0, keepdim=True)
+        if verbose_wds:
+            print(">>>", result["A_paths"])
         return result
 
     def __len__(self):
