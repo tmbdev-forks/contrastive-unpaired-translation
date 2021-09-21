@@ -65,12 +65,32 @@ def expand(urls):
     else:
         return [x for u in urls for x in expand(u)]
 
+def random_rotation(image, prob=0.5):
+    if random.random() < prob:
+        return image
+    assert isinstance(image, Image.Image)
+    a = random.choice([0, 90, 180, 270])
+    return image.rotate(a)
+
+def random_scale(image, prob=0.5):
+    if random.random() < prob:
+        return image
+    h, w = image.height, image.width
+    s = random.uniform(2.0, 5.0)
+    mode = random.choice([Image.NEAREST, Image.BILINEAR, Image.BICUBIC, Image.LANCZOS])
+    zoomed = image.resize((int(w * s), int(h * s)), mode)
+    unzoomed = image.resize((w, h), mode)
+    return unzoomed
+
 def make_dataset(spec, options, comment=""):
     print(comment, spec, options)
     gray = options.get("gray", True)
     extensions = options.get("extensions", ["jpg", "jpeg", "png"])
     patchsize = options.get("patchsize", 256)
     nsample = options.get("nsample", 100)
+    rotprob = float(options.get("rotprob", 0.25))
+    scaleprob = float(options.get("scaleprob", 0.0))
+    noise = float(options.get("noise", 0.0))
     if spec is None:
         return None
     if isinstance(spec, str):
@@ -95,6 +115,10 @@ def make_dataset(spec, options, comment=""):
             .shuffle(item.get("shuffle", 1000))
             .repeat()
         )
+        if rotprob > 0.0:
+            dataset = dataset.map(lambda s: (s[0], random_rotation(s[1], rotprob)))
+        if scaleprob > 0.0:
+            dataset = dataset.map(lambda s: (s[0], random_scale(s[1], scaleprob)))
         result.add_dataset(dataset, probability=item.get("probability", 1.0), comment=str(urls)[:80])
 
     return result

@@ -1,0 +1,6 @@
+A:
+  - shards: /home/tmb/gs/nvdata-ocropus/rendered.tar
+    scaleprob: 1.0
+    rotprob: 1.0
+B: 
+  - /home/tmb/gs/nvdata-ocropus/rendered.tar

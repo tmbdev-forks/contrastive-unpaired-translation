@@ -1,0 +1,10 @@
+A:
+  - shards: /home/tmb/gs/nvdata-ocropus-tess/ia1-{000000..000033}.tar
+    scaleprob: 0.3
+  - /home/tmb/gs/nvdata-ocropus-tess/cdipsub-{000000..000022}.tar
+  - /home/tmb/gs/nvdata-ocropus-tess/gsub-{000000..000167}.tar
+  - shards: /home/tmb/gs/nvdata-ocropus-tess/bin-gsub-{000000..000167}.tar
+    extensions: nrm.jpg
+  - shards: /home/tmb/gs/nvdata-ocropus/rendered.tar
+    scaleprob: 1.0
+B: /home/tmb/gs/nvdata-ocropus/rendered.tar
