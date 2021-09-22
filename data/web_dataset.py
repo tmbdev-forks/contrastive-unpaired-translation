@@ -33,13 +33,13 @@ def normalize_image(image):
 def get_patches(size, nsample=100, threshold=-1.0, scale=(0.5, 2.0)):
     def loop(src):
         for key, image in src:
-            #image = normalize_image(image)
+            # image = normalize_image(image)
             if size is None or size < 1:
                 assert False
                 yield key, image
             h, w = image.shape[:2]
             ph, pw = size, size
-            if h-ph <= 5 or w-pw <= :
+            if h - ph <= 5 or w - pw <= 5:
                 continue
             for i in range(nsample):
                 y, x = randrange(0, h - ph), randrange(0, w - pw)
@@ -63,18 +63,20 @@ def get_patches(size, nsample=100, threshold=-1.0, scale=(0.5, 2.0)):
 
     return loop
 
+
 def expand(urls):
     if isinstance(urls, str):
         return list(braceexpand.braceexpand(urls))
     else:
         return [x for u in urls for x in expand(u)]
 
+
 def random_rescale(image, scales):
     assert isinstance(image, np.ndarray)
-    image = Image.fromarray((image*255.0).astype(np.uint8)).convert("RGB")
+    image = Image.fromarray((image * 255.0).astype(np.uint8)).convert("RGB")
     lo, hi = scales
     h, w = image.height, image.width
-    s = 10**random.uniform(log10(lo), log10(hi))
+    s = 10 ** random.uniform(log10(lo), log10(hi))
     mode = random.choice([Image.NEAREST, Image.BILINEAR, Image.BICUBIC, Image.LANCZOS])
     zoomed = image.resize((int(w * s), int(h * s)), mode)
     zoomed = np.array(zoomed) / 255.0
@@ -82,14 +84,16 @@ def random_rescale(image, scales):
         print("# random_rescale ", scales, s, (h, w), zoomed.shape)
     return zoomed
 
+
 def random_rotation(image, prob=0.5):
     assert isinstance(image, Image.Image)
     if random.random() < prob:
         return image
     assert isinstance(image, Image.Image)
     a = random.choice([0, 90, 180, 270])
-    #print("# random_rotation ", a)
+    # print("# random_rotation ", a)
     return image.rotate(a)
+
 
 def random_down_up_scale(image, prob=0.5):
     assert isinstance(image, Image.Image)
@@ -104,6 +108,7 @@ def random_down_up_scale(image, prob=0.5):
     unzoomed = image.resize((w, h), mode)
     return unzoomed
 
+
 def make_dataset(spec, options, comment=""):
     print(comment, spec, options)
     if spec is None:
@@ -111,9 +116,9 @@ def make_dataset(spec, options, comment=""):
     if isinstance(spec, str):
         spec = [spec]
     result = wds.RoundRobin()
-    for item in spec:   
+    for item in spec:
         if isinstance(item, str):
-            item = dict(shards=item) 
+            item = dict(shards=item)
         extensions = item.get("extensions", ["jpg", "jpeg", "png"])
         patchsize = item.get("patchsize", 256)
         nsample = item.get("nsample", 10)
@@ -127,11 +132,17 @@ def make_dataset(spec, options, comment=""):
             .shuffle(item.get("preshuffle", 100))
             .rsample(item.get("subsample", 1.0))
             .decode("rgb")
-            .to_tuple("__key__", item.get("extensions", ["png", "jpg", "jpeg"]), handler=wds.ignore_and_continue)
+            .to_tuple(
+                "__key__",
+                item.get("extensions", ["png", "jpg", "jpeg"]),
+                handler=wds.ignore_and_continue,
+            )
         )
         gray = item.get("gray", True)
         if gray:
-            dataset = dataset.map(lambda s: (s[0], np.mean(s[1], 2, keepdims=True).repeat(3, 2)))
+            dataset = dataset.map(
+                lambda s: (s[0], np.mean(s[1], 2, keepdims=True).repeat(3, 2))
+            )
         scale = item.get("scale", [])
         if len(scale) > 0:
             the_scale = scale
@@ -144,10 +155,15 @@ def make_dataset(spec, options, comment=""):
         if rotprob > 0.0:
             dataset = dataset.map(lambda s: (s[0], random_rotation(s[1], rotprob)))
         if scaleprob > 0.0:
-            dataset = dataset.map(lambda s: (s[0], random_down_up_scale(s[1], scaleprob)))
-        result.add_dataset(dataset, probability=item.get("probability", 1.0), comment=str(urls)[:80])
+            dataset = dataset.map(
+                lambda s: (s[0], random_down_up_scale(s[1], scaleprob))
+            )
+        result.add_dataset(
+            dataset, probability=item.get("probability", 1.0), comment=str(urls)[:80]
+        )
 
     return result
+
 
 class WebDataset(BaseDataset):
     """
@@ -174,7 +190,7 @@ class WebDataset(BaseDataset):
             self.options = yaml.load(open(opt.dataroot, "r"), Loader=yaml.FullLoader)
         assert isinstance(self.options, dict)
         self.ds_A = make_dataset(self.options["A"], self.options, comment="A")
-        print("ds_A", id(self.ds_A), self.ds_A)        
+        print("ds_A", id(self.ds_A), self.ds_A)
         self.ds_B = make_dataset(self.options.get("B", None), self.options, comment="B")
         self.size = self.options.get("epoch", 10000)
         self.src_A = iter(self.ds_A)
@@ -196,12 +212,18 @@ class WebDataset(BaseDataset):
         """
         result = {}
         is_finetuning = self.opt.isTrain and self.current_epoch > self.opt.n_epochs
-        modified_opt = util.copyconf(self.opt, load_size=self.opt.crop_size if is_finetuning else self.opt.load_size)
+        modified_opt = util.copyconf(
+            self.opt,
+            load_size=self.opt.crop_size if is_finetuning else self.opt.load_size,
+        )
         transform = get_transform(modified_opt)
         result["A_paths"], result["A"] = next(self.src_A)
         if int(os.environ.get("VERBOSE_LOAD", "0")) > 0:
             A = transforms.ToTensor()(result["A"])
-            print(f"WebDataset {A.shape} {A.min():6.3f} {A.mean():6.3f} {A.max():6.3f} {result['A']}", file=sys.stderr)
+            print(
+                f"WebDataset {A.shape} {A.min():6.3f} {A.mean():6.3f} {A.max():6.3f} {result['A']}",
+                file=sys.stderr,
+            )
         result["A"] = transform(result["A"])
         assert result["A"].shape[0] == 3
         if self.opt.input_nc == 1:
@@ -223,4 +245,3 @@ class WebDataset(BaseDataset):
         we take a maximum of
         """
         return self.size
-
