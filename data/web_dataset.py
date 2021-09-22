@@ -37,9 +37,11 @@ def get_patches(size, nsample=100, threshold=-1.0, scale=(0.5, 2.0)):
             if size is None or size < 1:
                 assert False
                 yield key, image
+            h, w = image.shape[:2]
+            ph, pw = size, size
+            if h-ph <= 5 or w-pw <= :
+                continue
             for i in range(nsample):
-                h, w = image.shape[:2]
-                ph, pw = size, size
                 y, x = randrange(0, h - ph), randrange(0, w - pw)
                 s = 10 ** uniform(log10(scale[0]), log10(scale[1]))
                 assert s >= scale[0] and s <= scale[1]
